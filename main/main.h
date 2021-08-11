@@ -18,6 +18,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "gattc_demo.h"
+#include "gattc.h"
 
 #endif /* __MAIN_H */

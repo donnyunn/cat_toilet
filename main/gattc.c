@@ -17,9 +17,10 @@
 *
 ****************************************************************************/
 
-#include "gattc_demo.h"
+#include "gattc.h"
+#include "beacon.h"
 
-#define GATTC_TAG "GATTC_DEMO"
+#define GATTC_TAG "GATTC"
 #define REMOTE_SERVICE_UUID        0x00FF
 #define REMOTE_NOTIFY_CHAR_UUID    0xFF01
 #define PROFILE_NUM      1
@@ -337,36 +338,55 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
         esp_ble_gap_cb_param_t *scan_result = (esp_ble_gap_cb_param_t *)param;
         switch (scan_result->scan_rst.search_evt) {
         case ESP_GAP_SEARCH_INQ_RES_EVT:
-            esp_log_buffer_hex(GATTC_TAG, scan_result->scan_rst.bda, 6);
-            ESP_LOGI(GATTC_TAG, "searched Adv Data Len %d, Scan Response Len %d", scan_result->scan_rst.adv_data_len, scan_result->scan_rst.scan_rsp_len);
-            adv_name = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
-                                                ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
-            ESP_LOGI(GATTC_TAG, "searched Device Name Len %d", adv_name_len);
-            esp_log_buffer_char(GATTC_TAG, adv_name, adv_name_len);
+            /* Search for BLE iBeacon Packet */
+            if (esp_ble_is_ibeacon_packet(scan_result->scan_rst.ble_adv, scan_result->scan_rst.adv_data_len)){
+                esp_ble_ibeacon_t *ibeacon_data = (esp_ble_ibeacon_t*)(scan_result->scan_rst.ble_adv);
+                ESP_LOGI(GATTC_TAG, "----------iBeacon Found----------");
+                esp_log_buffer_hex("IBEACON_DEMO: Device address:", scan_result->scan_rst.bda, ESP_BD_ADDR_LEN );
+                esp_log_buffer_hex("IBEACON_DEMO: Proximity UUID:", ibeacon_data->ibeacon_vendor.proximity_uuid, ESP_UUID_LEN_128);
 
-#if CONFIG_EXAMPLE_DUMP_ADV_DATA_AND_SCAN_RESP
-            if (scan_result->scan_rst.adv_data_len > 0) {
-                ESP_LOGI(GATTC_TAG, "adv data:");
-                esp_log_buffer_hex(GATTC_TAG, &scan_result->scan_rst.ble_adv[0], scan_result->scan_rst.adv_data_len);
-            }
-            if (scan_result->scan_rst.scan_rsp_len > 0) {
-                ESP_LOGI(GATTC_TAG, "scan resp:");
-                esp_log_buffer_hex(GATTC_TAG, &scan_result->scan_rst.ble_adv[scan_result->scan_rst.adv_data_len], scan_result->scan_rst.scan_rsp_len);
-            }
-#endif
-            ESP_LOGI(GATTC_TAG, "\n");
+                uint16_t major = ENDIAN_CHANGE_U16(ibeacon_data->ibeacon_vendor.major);
+                uint16_t minor = ENDIAN_CHANGE_U16(ibeacon_data->ibeacon_vendor.minor);
+                ESP_LOGI(GATTC_TAG, "Major: 0x%04x (%d)", major, major);
+                ESP_LOGI(GATTC_TAG, "Minor: 0x%04x (%d)", minor, minor);
+                ESP_LOGI(GATTC_TAG, "Measured power (RSSI at a 1m distance):%d dbm", ibeacon_data->ibeacon_vendor.measured_power);
+                ESP_LOGI(GATTC_TAG, "RSSI of packet:%d dbm", scan_result->scan_rst.rssi);
 
-            if (adv_name != NULL) {
-                if (strlen(remote_device_name) == adv_name_len && strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) {
-                    ESP_LOGI(GATTC_TAG, "searched device %s\n", remote_device_name);
-                    if (connect == false) {
-                        connect = true;
-                        ESP_LOGI(GATTC_TAG, "connect to the remote device.");
-                        esp_ble_gap_stop_scanning();
-                        esp_ble_gattc_open(gl_profile_tab[PROFILE_A_APP_ID].gattc_if, scan_result->scan_rst.bda, scan_result->scan_rst.ble_addr_type, true);
+                if (ibeacon_data->ibeacon_vendor.measured_power < scan_result->scan_rst.rssi) {
+                    /* Example */
+                    esp_log_buffer_hex(GATTC_TAG, scan_result->scan_rst.bda, 6);
+                    ESP_LOGI(GATTC_TAG, "searched Adv Data Len %d, Scan Response Len %d", scan_result->scan_rst.adv_data_len, scan_result->scan_rst.scan_rsp_len);
+                    adv_name = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
+                                                        ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
+                    ESP_LOGI(GATTC_TAG, "searched Device Name Len %d", adv_name_len);
+                    esp_log_buffer_char(GATTC_TAG, adv_name, adv_name_len);
+
+        #if CONFIG_EXAMPLE_DUMP_ADV_DATA_AND_SCAN_RESP
+                    if (scan_result->scan_rst.adv_data_len > 0) {
+                        ESP_LOGI(GATTC_TAG, "adv data:");
+                        esp_log_buffer_hex(GATTC_TAG, &scan_result->scan_rst.ble_adv[0], scan_result->scan_rst.adv_data_len);
                     }
+                    if (scan_result->scan_rst.scan_rsp_len > 0) {
+                        ESP_LOGI(GATTC_TAG, "scan resp:");
+                        esp_log_buffer_hex(GATTC_TAG, &scan_result->scan_rst.ble_adv[scan_result->scan_rst.adv_data_len], scan_result->scan_rst.scan_rsp_len);
+                    }
+        #endif
+                    ESP_LOGI(GATTC_TAG, "\n");
+
+                    if (adv_name != NULL) {
+                        if (strlen(remote_device_name) == adv_name_len && strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) {
+                            ESP_LOGI(GATTC_TAG, "searched device %s\n", remote_device_name);
+                            if (connect == false) {
+                                connect = true;
+                                ESP_LOGI(GATTC_TAG, "connect to the remote device.");
+                                esp_ble_gap_stop_scanning();
+                                esp_ble_gattc_open(gl_profile_tab[PROFILE_A_APP_ID].gattc_if, scan_result->scan_rst.bda, scan_result->scan_rst.ble_addr_type, true);
+                            }
+                        }
+                    }
+                    /* Example */
                 }
-            }
+            } 
             break;
         case ESP_GAP_SEARCH_INQ_CMPL_EVT:
             break;
@@ -434,7 +454,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
     } while (0);
 }
 
-void gattc_demo_init(void)
+void gattc_init(void)
 {
     // Initialize NVS.
     esp_err_t ret = nvs_flash_init();
@@ -494,4 +514,5 @@ void gattc_demo_init(void)
         ESP_LOGE(GATTC_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
     }
 
+    beacon_start();
 }
