@@ -33,6 +33,9 @@ static bool get_server = false;
 static esp_gattc_char_elem_t *char_elem_result   = NULL;
 static esp_gattc_descr_elem_t *descr_elem_result = NULL;
 
+static esp_gatt_if_t g_gattc_if;
+xQueueHandle data_queue;
+
 /* Declare static functions */
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
@@ -104,6 +107,9 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         if (mtu_ret){
             ESP_LOGE(GATTC_TAG, "config MTU error, error code = %x", mtu_ret);
         }
+
+        g_gattc_if = gattc_if;
+
         break;
     }
     case ESP_GATTC_OPEN_EVT:
@@ -277,10 +283,10 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                                   write_char_data,
                                   ESP_GATT_WRITE_TYPE_RSP,
                                   ESP_GATT_AUTH_REQ_NONE);
-        esp_ble_gattc_read_char( gattc_if, 
-                                 gl_profile_tab[PROFILE_A_APP_ID].conn_id,
-                                 gl_profile_tab[PROFILE_A_APP_ID].char_handle,
-                                 ESP_GATT_AUTH_REQ_NONE);
+        // esp_ble_gattc_read_char( gattc_if, 
+        //                          gl_profile_tab[PROFILE_A_APP_ID].conn_id,
+        //                          gl_profile_tab[PROFILE_A_APP_ID].char_handle,
+        //                          ESP_GATT_AUTH_REQ_NONE);
         break;
     case ESP_GATTC_SRVC_CHG_EVT: {
         esp_bd_addr_t bda;
@@ -302,6 +308,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
             break;
         }
         esp_log_buffer_hex(GATTC_TAG, p_data->read.value, p_data->read.value_len);
+        xQueueSend(data_queue, p_data->read.value, 0);
         ESP_LOGI(GATTC_TAG, "read char success ");
     break;
     case ESP_GATTC_DISCONNECT_EVT:
@@ -454,6 +461,29 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
     } while (0);
 }
 
+bool gattc_read(uint8_t * data)
+{
+    bool ret = false;
+
+    if (connect) {
+        esp_ble_gattc_read_char( g_gattc_if, 
+                                gl_profile_tab[PROFILE_A_APP_ID].conn_id,
+                                gl_profile_tab[PROFILE_A_APP_ID].char_handle,
+                                ESP_GATT_AUTH_REQ_NONE);
+        
+        if (xQueueReceive(data_queue, data, 1000/portTICK_RATE_MS)) {
+            ret = true;
+        }
+    }
+
+    return ret;
+}
+
+bool gattc_isConnected(void)
+{
+    return connect;
+}
+
 void gattc_init(void)
 {
     // Initialize NVS.
@@ -515,4 +545,6 @@ void gattc_init(void)
     }
 
     beacon_start();
+
+    data_queue = xQueueCreate(200, 16*sizeof(uint8_t));
 }

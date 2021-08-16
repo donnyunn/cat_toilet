@@ -15,11 +15,25 @@
 
 #include "main.h"
 
+#define TAG "MAIN"
+
 void app_main(void)
 {
+    uint8_t data[16];
+
     gattc_init();
     while(1)
     {
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        if (gattc_isConnected()) {
+            vTaskDelay(50 / portTICK_PERIOD_MS);
+            if (gattc_read(data)) {
+                for (int i = 0; i < 16; i++) {
+                    printf("%02x", data[i]);
+                }
+                printf("\n");
+            }
+        } else {
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+        }
     }
 }
