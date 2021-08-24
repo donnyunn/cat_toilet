@@ -19,20 +19,34 @@
 
 void app_main(void)
 {
+    uint8_t bda[6];
     uint8_t data[16];
 
+    /* gatt client and beacon scanner */
     gattc_init();
+
+    /* IR Sensor */
+    irsensor_init();
+
     while(1)
     {
         if (gattc_isConnected()) {
-            vTaskDelay(50 / portTICK_PERIOD_MS);
+            vTaskDelay(10 / portTICK_PERIOD_MS);
             if (gattc_read(data)) {
+                gattc_getBDA(bda);
+                for (int i = 0; i < 6; i++) {
+                    printf("%02x", bda[i]);
+                }
+                printf(" ");
                 for (int i = 0; i < 16; i++) {
                     printf("%02x", data[i]);
                 }
                 printf("\n");
             }
         } else {
+            if (irsensor_isDetected()) {
+                printf("enable\n");
+            }
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     }

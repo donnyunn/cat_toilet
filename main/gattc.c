@@ -479,6 +479,16 @@ bool gattc_read(uint8_t * data)
     return ret;
 }
 
+void gattc_getBDA(uint8_t * buf)
+{
+    memcpy(buf, gl_profile_tab[PROFILE_A_APP_ID].remote_bda, ESP_BD_ADDR_LEN);
+}
+
+void gattc_scanStart(void)
+{
+    esp_ble_gap_start_scanning(30);
+}
+
 bool gattc_isConnected(void)
 {
     return connect;
