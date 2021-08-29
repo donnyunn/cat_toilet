@@ -28,7 +28,7 @@ uint32_t irsensor_getResult(void)
 bool irsensor_isDetected(void)
 {
     uint32_t irsensor_value = irsensor_getResult();
-    // ESP_LOGI(TAG, "IR Sensor Value: %d\n", irsensor_value);
+    ESP_LOGI(TAG, "IR Sensor Value: %d\n", irsensor_value);
     if (irsensor_value > DETECTION_REFVAL) {
         return true;
     } else {
