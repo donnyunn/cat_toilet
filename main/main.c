@@ -66,7 +66,7 @@ void app_main(void)
     uint8_t bda[ESP_BD_ADDR_LEN];
     uint8_t data[16];
     char packet[ESP_BD_ADDR_LEN+16];
-    char str[64];
+    char str[64] = {0,};
     int cntTry = 0;
     int ir_retry = 0;
     int ws_retry = 0;
@@ -126,6 +126,9 @@ void app_main(void)
                                     }
                                     printf("%s\n", str);
                                     websocket_send(str, len);
+                                    // memcpy(str, bda, sizeof(bda));
+                                    // memcpy(str+sizeof(bda), data, sizeof(data));
+                                    // websocket_send(str, sizeof(bda)+sizeof(data));
                                     break;
                                 } else {
                                     printf("websocket send retry (%d)\n", ws_retry);
