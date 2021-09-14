@@ -24,6 +24,16 @@
 RTC_DATA_ATTR wifi_config_t wifi_info;
 RTC_DATA_ATTR bool wifi_ready = false;
 
+typedef enum {
+    MAIN_OK,
+    MAIN_NO_CONNECT_WIFI,
+    MAIN_NO_CONNECT_WS,
+    MAIN_NO_CAT,
+} result_t;
+
+result_t main_setup(void);
+result_t main_work(void);
+
 bool main_wifi_ready(void)
 {
     return wifi_ready;
@@ -53,7 +63,7 @@ void main_set_wifi(wifi_config_t * config)
     printf("%s\n", wifi_info.sta.ssid);
 }
 
-void led_blick(void)
+void led_blink(void)
 {
     led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
     led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
@@ -63,6 +73,73 @@ void led_blick(void)
 
 void app_main(void)
 {
+    result_t res = MAIN_OK;
+    int sleep_sec = 15;
+
+    /* miscellaneous peripheral setup */
+    misc_init();
+    
+    if (btn_pressed()) { // user button event check
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        if (btn_pressed()) {
+            res = main_setup();
+        }
+    } else {
+        res = main_work();
+    }
+
+    switch (res) {
+        case MAIN_OK:
+            sleep_sec = 15;
+        break;
+        case MAIN_NO_CONNECT_WIFI:
+            sleep_sec = 30;
+        break;
+        case MAIN_NO_CONNECT_WS:
+            sleep_sec = 30;
+        break;
+        case MAIN_NO_CAT:
+            sleep_sec = 15;
+        break;
+    }
+    led_off();    
+    deepsleep_start(sleep_sec, BTN_IO);
+}
+
+result_t main_setup(void)
+{
+    result_t ret = MAIN_OK;
+    int cntTry = 0;
+
+    /* blufi */
+    blufi_start();
+    while (!blufi_isConnected()) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        if (++cntTry > CNT_WAIT_CONNECT) {
+            ret = MAIN_NO_CONNECT_WIFI;
+            break;
+        }
+        led_toggle();
+    }
+    while (blufi_isConnected()) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        led_on();
+        while (!wifi_isConnected()) {
+            led_blink();
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            if (!blufi_isConnected()) {
+                ret = MAIN_NO_CONNECT_WIFI;
+                break;
+            }
+        }
+    }
+
+    return ret;
+}
+
+result_t main_work(void)
+{
+    result_t ret = MAIN_OK;
     uint8_t bda[ESP_BD_ADDR_LEN];
     uint8_t data[16];
     char packet[ESP_BD_ADDR_LEN+16];
@@ -71,45 +148,27 @@ void app_main(void)
     int ir_retry = 0;
     int ws_retry = 0;
 
-    /* miscellaneous peripheral setup */
-    misc_init();
-    
-    if (btn_pressed()) { // user button event check
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        if (btn_pressed()) {
-            /* blufi */
-            blufi_start();
-            while (!blufi_isConnected()) {
-                vTaskDelay(500 / portTICK_PERIOD_MS);
-                if (++cntTry > CNT_WAIT_CONNECT) break;
-                led_toggle();
-            }
-            while (blufi_isConnected()) {
-                vTaskDelay(500 / portTICK_PERIOD_MS);
-                led_on();
-                while (!wifi_isConnected()) {
-                    led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    vTaskDelay(2000 / portTICK_PERIOD_MS);
-                }
-            }
-        }
-    } else {
-        /* IR Sensor */
-        irsensor_init();
-        ir_en_on();
-        while (ir_retry < CNT_IR_CHECK) {
-            if (irsensor_isDetected()) {
-                /* Wi-Fi Connection Check */
-                if (websocket_init()) {
-                    /* gatt client and beacon scanner */
+    /* Wi-Fi Connection Check */
+    if (websocket_init()) {
+        if (websocket_isConnected()) {
+            ret = MAIN_OK;
+            ESP_LOGI(TAG, "Websocket Connected");
+
+            /* IR Sensor Check */
+            irsensor_init();
+            ir_en_on();
+            while (ir_retry < CNT_IR_CHECK) {
+                if (irsensor_isDetected()) {
+                    ret = MAIN_OK;
+                    ESP_LOGI(TAG, "IR Sensor Detected");
+
+                    /* gatt client and beacon scan */
                     gattc_init();
                     while (!gattc_isConnected()) {
-                        vTaskDelay(500 / portTICK_PERIOD_MS);
                         if (++cntTry > CNT_WAIT_CONNECT) break;
+                        vTaskDelay(500 / portTICK_PERIOD_MS);
                     }
+                    /* gatt client work */
                     while (gattc_isConnected()) {
                         if (gattc_read(data)) {
                             gattc_getBDA(bda);
@@ -139,20 +198,23 @@ void app_main(void)
                             led_toggle();
                         }
                     }
-                    websocket_disconnect();
-                    while (websocket_isConnected()) vTaskDelay(10 / portTICK_PERIOD_MS);
-                } else {
-                    ESP_LOGE(TAG, "failed to connect wi-fi");
+                    while (irsensor_isDetected()) {
+                        vTaskDelay(200 / portTICK_PERIOD_MS);
+                    }
                     break;
+                } else {
+                    ret = MAIN_NO_CAT;
+                    ir_retry++;
+                    vTaskDelay(200 / portTICK_PERIOD_MS);
                 }
-            } else {
-                ir_retry++;
-                vTaskDelay(200 / portTICK_PERIOD_MS);
             }
+            ir_en_off();
+            websocket_disconnect();
         }
-        ir_en_off();
+    } else {
+        ESP_LOGE(TAG, "failed to connect to websocket server");
+        ret = MAIN_NO_CONNECT_WS;
     }
-    led_off();
-    
-    deepsleep_start(5, BTN_IO);
+
+    return ret;
 }

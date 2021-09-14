@@ -1,6 +1,6 @@
 
-#ifndef __ADC_H
-#define __ADC_H
+#ifndef __IR_SENSOR_H
+#define __IR_SENSOR_H
 
 #include "main.h"
 
@@ -10,4 +10,4 @@ int adc_get_result(void);
 bool irsensor_isDetected(void);
 void irsensor_init(void);
 
-#endif /* __DEEPSLEEP_H */
+#endif /* __IR_SENSOR_H */
