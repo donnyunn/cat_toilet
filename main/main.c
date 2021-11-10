@@ -18,11 +18,12 @@
 #define TAG "MAIN"
 
 #define CNT_WAIT_CONNECT 60
-#define CNT_IR_CHECK 10
+#define CNT_IR_CHECK 5
 #define CNT_WS_RETRY 5
 
 RTC_DATA_ATTR wifi_config_t wifi_info;
 RTC_DATA_ATTR bool wifi_ready = false;
+RTC_DATA_ATTR bool power;
 
 bool main_wifi_ready(void)
 {
@@ -73,86 +74,272 @@ void app_main(void)
 
     /* miscellaneous peripheral setup */
     misc_init();
-    
-    if (btn_pressed()) { // user button event check
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        if (btn_pressed()) {
-            /* blufi */
-            blufi_start();
-            while (!blufi_isConnected()) {
-                vTaskDelay(500 / portTICK_PERIOD_MS);
-                if (++cntTry > CNT_WAIT_CONNECT) break;
-                led_toggle();
-            }
-            while (blufi_isConnected()) {
-                vTaskDelay(500 / portTICK_PERIOD_MS);
-                led_on();
-                while (!wifi_isConnected()) {
-                    led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
-                    vTaskDelay(2000 / portTICK_PERIOD_MS);
-                }
-            }
-        }
-    } else {
-        /* IR Sensor */
-        irsensor_init();
-        ir_en_on();
-        while (ir_retry < CNT_IR_CHECK) {
-            if (irsensor_isDetected()) {
-                /* Wi-Fi Connection Check */
-                if (websocket_init()) {
-                    /* gatt client and beacon scanner */
-                    gattc_init();
-                    while (!gattc_isConnected()) {
-                        vTaskDelay(500 / portTICK_PERIOD_MS);
-                        if (++cntTry > CNT_WAIT_CONNECT) break;
-                    }
-                    while (gattc_isConnected()) {
-                        if (gattc_read(data)) {
-                            gattc_getBDA(bda);
 
-                            ws_retry = 0;
-                            while (ws_retry++ < CNT_WS_RETRY) {
-                                if (websocket_isConnected()) {
-                                    int len = 0;
-                                    for (int i = 0; i < 6; i++) {
-                                        len += sprintf(str+len, "%02x", bda[i]);
+    /* IR Sensor Test */
+    // irsensor_init();
+    // ir_en_on();
+    // while(1) {
+    //     irsensor_isDetected();
+    //     vTaskDelay(200 / portTICK_PERIOD_MS);
+    // }
+
+    switch (deepsleep_get_wakeup()) {
+        case ESP_SLEEP_WAKEUP_TIMER:
+            if (true) {
+                /* IR Sensor */
+                irsensor_init();
+                ir_en_on();
+                while (ir_retry < CNT_IR_CHECK) {
+                    if (irsensor_isDetected()) {
+                        /* Wi-Fi Connection Check */
+                        if (websocket_init()) {
+                            /* gatt client and beacon scanner */
+                            gattc_init();
+                            while (!gattc_isConnected()) {
+                                vTaskDelay(500 / portTICK_PERIOD_MS);
+                                if (++cntTry > CNT_WAIT_CONNECT) break;
+                            }
+                            while (gattc_isConnected()) {
+                                if (gattc_read(data)) {
+                                    gattc_getBDA(bda);
+
+                                    ws_retry = 0;
+                                    while (ws_retry++ < CNT_WS_RETRY) {
+                                        if (websocket_isConnected()) {
+                                            int len = 0;
+                                            for (int i = 0; i < 6; i++) {
+                                                len += sprintf(str+len, "%02x", bda[i]);
+                                            }
+                                            for (int i = 0; i < 16; i++) {
+                                                len += sprintf(str+len, "%02x", data[i]);
+                                            }
+                                            printf("%s\n", str);
+                                            websocket_send(str, len);
+                                            // memcpy(str, bda, sizeof(bda));
+                                            // memcpy(str+sizeof(bda), data, sizeof(data));
+                                            // websocket_send(str, sizeof(bda)+sizeof(data));
+                                            break;
+                                        } else {
+                                            printf("websocket send retry (%d)\n", ws_retry);
+                                            vTaskDelay(1000 / portTICK_PERIOD_MS);
+                                        }
                                     }
-                                    for (int i = 0; i < 16; i++) {
-                                        len += sprintf(str+len, "%02x", data[i]);
-                                    }
-                                    printf("%s\n", str);
-                                    websocket_send(str, len);
-                                    // memcpy(str, bda, sizeof(bda));
-                                    // memcpy(str+sizeof(bda), data, sizeof(data));
-                                    // websocket_send(str, sizeof(bda)+sizeof(data));
-                                    break;
-                                } else {
-                                    printf("websocket send retry (%d)\n", ws_retry);
-                                    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+                                    led_toggle();
                                 }
                             }
+                            websocket_disconnect();
+                            while (websocket_isConnected()) vTaskDelay(10 / portTICK_PERIOD_MS);
+                        } else {
+                            ESP_LOGE(TAG, "failed to connect wi-fi");
+                            break;
+                        }
+                    } else {
+                        ir_retry++;
+                        vTaskDelay(200 / portTICK_PERIOD_MS);
+                    }
+                }
+                ir_en_off();
+            }
+        break;
+        case ESP_SLEEP_WAKEUP_EXT1:
+            vTaskDelay(1500 / portTICK_PERIOD_MS);
+            if (btn_pressed()) {
+                led_on();
+                if (power) {
+                    power = false;
 
+                    vTaskDelay(100 / portTICK_PERIOD_MS);
+                    led_off();
+                    vTaskDelay(100 / portTICK_PERIOD_MS);
+                    led_on();
+                    vTaskDelay(100 / portTICK_PERIOD_MS);
+                } else {
+                    power = true;
+
+                    if (main_wifi_ready()) {
+                        vTaskDelay(500 / portTICK_PERIOD_MS);
+                        led_off();
+                        vTaskDelay(500 / portTICK_PERIOD_MS);
+                        led_on();
+                        vTaskDelay(500 / portTICK_PERIOD_MS);
+                        led_off();
+                        vTaskDelay(500 / portTICK_PERIOD_MS);
+                        led_on();
+                        vTaskDelay(3000 / portTICK_PERIOD_MS);
+                        if (btn_pressed()) {
+                            /* blufi */
+                            blufi_start();
+                            while (!blufi_isConnected()) {
+                                vTaskDelay(500 / portTICK_PERIOD_MS);
+                                if (++cntTry > CNT_WAIT_CONNECT) break;
+                                led_toggle();
+                            }
+                            if (!blufi_isConnected()) {
+                                ESP_LOGE(TAG, "failed to connect blufi");
+                                power = false;
+                                led_off();
+                                break;
+                            }
+                            while (blufi_isConnected()) {
+                                vTaskDelay(500 / portTICK_PERIOD_MS);
+                                led_on();
+                                while (!wifi_isConnected()) {
+                                    led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                    led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                    led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                    led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                    vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+                                    if (!blufi_isConnected() || btn_pressed()) {
+                                        ESP_LOGE(TAG, "failed to connect wifi");
+                                        power = false;
+                                        led_off();
+                                        break;
+                                    }
+                                }
+                                if (!wifi_isConnected()) {
+                                    ESP_LOGE(TAG, "failed to connect wifi 2");
+                                    power = false;
+                                    led_off();
+                                    break;
+                                }
+                            }
+                        }
+
+                    } else {                   
+                        /* blufi */
+                        blufi_start();
+                        while (!blufi_isConnected()) {
+                            vTaskDelay(500 / portTICK_PERIOD_MS);
+                            if (++cntTry > CNT_WAIT_CONNECT) break;
                             led_toggle();
                         }
+                        if (!blufi_isConnected()) {
+                            ESP_LOGE(TAG, "failed to connect blufi");
+                            power = false;
+                            led_off();
+                            break;
+                        }
+                        while (blufi_isConnected()) {
+                            vTaskDelay(500 / portTICK_PERIOD_MS);
+                            led_on();
+                            while (!wifi_isConnected()) {
+                                led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
+                                vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+                                if (!blufi_isConnected() || btn_pressed()) {
+                                    ESP_LOGE(TAG, "failed to connect wifi");
+                                    power = false;
+                                    led_off();
+                                    break;
+                                }
+                            }
+                            if (!wifi_isConnected()) {
+                                ESP_LOGE(TAG, "failed to connect wifi 2");
+                                power = false;
+                                led_off();
+                                break;
+                            }
+                        }
                     }
-                    websocket_disconnect();
-                    while (websocket_isConnected()) vTaskDelay(10 / portTICK_PERIOD_MS);
-                } else {
-                    ESP_LOGE(TAG, "failed to connect wi-fi");
-                    break;
                 }
-            } else {
-                ir_retry++;
-                vTaskDelay(200 / portTICK_PERIOD_MS);
+                
+                led_off();
             }
-        }
-        ir_en_off();
+        break;
+        default:
+            power = false;
+            led_off();
+        break;
     }
-    led_off();
     
-    deepsleep_start(5, BTN_IO);
+    // if (btn_pressed()) { // user button event check
+    //     vTaskDelay(500 / portTICK_PERIOD_MS);
+    //     if (btn_pressed()) {
+    //         /* blufi */
+    //         blufi_start();
+    //         while (!blufi_isConnected()) {
+    //             vTaskDelay(500 / portTICK_PERIOD_MS);
+    //             if (++cntTry > CNT_WAIT_CONNECT) break;
+    //             led_toggle();
+    //         }
+    //         while (blufi_isConnected()) {
+    //             vTaskDelay(500 / portTICK_PERIOD_MS);
+    //             led_on();
+    //             while (!wifi_isConnected()) {
+    //                 led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
+    //                 led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
+    //                 led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
+    //                 led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
+    //                 vTaskDelay(2000 / portTICK_PERIOD_MS);
+    //             }
+    //         }
+    //     }
+    // } else {
+    //     /* IR Sensor */
+    //     irsensor_init();
+    //     ir_en_on();
+    //     while (ir_retry < CNT_IR_CHECK) {
+    //         if (irsensor_isDetected()) {
+    //             /* Wi-Fi Connection Check */
+    //             if (websocket_init()) {
+    //                 /* gatt client and beacon scanner */
+    //                 gattc_init();
+    //                 while (!gattc_isConnected()) {
+    //                     vTaskDelay(500 / portTICK_PERIOD_MS);
+    //                     if (++cntTry > CNT_WAIT_CONNECT) break;
+    //                 }
+    //                 while (gattc_isConnected()) {
+    //                     if (gattc_read(data)) {
+    //                         gattc_getBDA(bda);
+
+    //                         ws_retry = 0;
+    //                         while (ws_retry++ < CNT_WS_RETRY) {
+    //                             if (websocket_isConnected()) {
+    //                                 int len = 0;
+    //                                 for (int i = 0; i < 6; i++) {
+    //                                     len += sprintf(str+len, "%02x", bda[i]);
+    //                                 }
+    //                                 for (int i = 0; i < 16; i++) {
+    //                                     len += sprintf(str+len, "%02x", data[i]);
+    //                                 }
+    //                                 printf("%s\n", str);
+    //                                 websocket_send(str, len);
+    //                                 // memcpy(str, bda, sizeof(bda));
+    //                                 // memcpy(str+sizeof(bda), data, sizeof(data));
+    //                                 // websocket_send(str, sizeof(bda)+sizeof(data));
+    //                                 break;
+    //                             } else {
+    //                                 printf("websocket send retry (%d)\n", ws_retry);
+    //                                 vTaskDelay(1000 / portTICK_PERIOD_MS);
+    //                             }
+    //                         }
+
+    //                         led_toggle();
+    //                     }
+    //                 }
+    //                 websocket_disconnect();
+    //                 while (websocket_isConnected()) vTaskDelay(10 / portTICK_PERIOD_MS);
+    //             } else {
+    //                 ESP_LOGE(TAG, "failed to connect wi-fi");
+    //                 break;
+    //             }
+    //         } else {
+    //             ir_retry++;
+    //             vTaskDelay(200 / portTICK_PERIOD_MS);
+    //         }
+    //     }
+    //     ir_en_off();
+    // }
+    // led_off();
+    
+    if (power) {
+        deepsleep_start(5, BTN_IO);
+    } else {
+        deepsleep_start(0, BTN_IO);
+    }
 }

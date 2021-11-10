@@ -134,7 +134,7 @@ CONFIG_ESP_WIFI_PASSWORD="mypassword"
 CONFIG_ESP_MAXIMUM_RETRY=2
 CONFIG_WEBSOCKET_URI_FROM_STRING=y
 # CONFIG_WEBSOCKET_URI_FROM_STDIN is not set
-CONFIG_WEBSOCKET_URI="wss://free3.piesocket.com/v3/1?api_key=hJdM0vRgfbVpSE6ky6wzl5SgsKSQgosyr87t070o&notify_self"
+CONFIG_WEBSOCKET_URI="59.6.2.48:8887"
 # end of Example Configuration
 
 #
