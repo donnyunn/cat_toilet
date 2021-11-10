@@ -16,6 +16,7 @@ static const char *TAG = "WEBSOCKET";
 #define BLUFI_WIFI_SSID            main_get_ssid()
 #define BLUFI_WIFI_PASS            main_get_password()
 
+
 // #define UNIMEO_WEBSOCKET_URI "ws://59.6.2.48:8887"
 #define UNIMEO_WEBSOCKET_URI "ws://192.168.0.24:3000"
 

@@ -25,6 +25,16 @@ RTC_DATA_ATTR wifi_config_t wifi_info;
 RTC_DATA_ATTR bool wifi_ready = false;
 RTC_DATA_ATTR bool power;
 
+typedef enum {
+    MAIN_OK,
+    MAIN_NO_CONNECT_WIFI,
+    MAIN_NO_CONNECT_WS,
+    MAIN_NO_CAT,
+} result_t;
+
+result_t main_setup(void);
+result_t main_work(void);
+
 bool main_wifi_ready(void)
 {
     return wifi_ready;
@@ -54,7 +64,7 @@ void main_set_wifi(wifi_config_t * config)
     printf("%s\n", wifi_info.sta.ssid);
 }
 
-void led_blick(void)
+void led_blink(void)
 {
     led_on(); vTaskDelay(200 / portTICK_PERIOD_MS);
     led_off(); vTaskDelay(200 / portTICK_PERIOD_MS);
@@ -64,13 +74,8 @@ void led_blick(void)
 
 void app_main(void)
 {
-    uint8_t bda[ESP_BD_ADDR_LEN];
-    uint8_t data[16];
-    char packet[ESP_BD_ADDR_LEN+16];
-    char str[64] = {0,};
-    int cntTry = 0;
-    int ir_retry = 0;
-    int ws_retry = 0;
+    result_t res = MAIN_OK;
+    int sleep_sec = 15;
 
     /* miscellaneous peripheral setup */
     misc_init();
